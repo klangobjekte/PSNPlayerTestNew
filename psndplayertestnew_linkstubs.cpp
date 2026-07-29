@@ -33,6 +33,19 @@
 #include <QSqlTableModel>
 #include <QPoint>
 
+//! sqldriver.h/sqlconnections.h/processhelper.h: s. ausfuehrlicher Kommentar
+//! weiter unten direkt vor den zugehoerigen Stub-Definitionen sowie den
+//! Kommentar bei "HEADERS += ../ProSoundFinder/sqldriver.h" in
+//! PSNPlayerTestNew.pro.
+#include "../ProSoundFinder/sqldriver.h"
+#include "../ProSoundFinder/sqlconnections.h"
+#include "../ProSoundFinder/processhelper.h"
+//! SndfileMetadataSet (Wert-Member von ProcessHelper) und ScanHelper
+//! (Stack-Objekt in UpdateMetadataThread::run(), s. sqldriver.h) -- s.
+//! ausfuehrlichen Kommentar weiter unten vor den jeweiligen Stubs.
+#include "../ProSoundFinder/sndfilemetadataset.h"
+#include "../ProSoundFinder/scanHelper.h"
+
 int CustomTableModel::columnCount() const
 {
     return 0;
@@ -244,3 +257,778 @@ QStringList MimeData::formats() const { return QStringList(); }
 QVariant MimeData::retrieveData(const QString &, QMetaType) const { return QVariant(); }
 void MimeData::sendDataRequest() {}
 void MimeData::generateUrls() {}
+
+//! ---- SQL/DB-Layer (sqldriver.h/sqlconnections.h/processhelper.h) ----
+//! CustomTableModel haelt "SqlSelectThread sqlSelectThread;" und
+//! "UpdateFieldInTableThread updateFieldInTableThread;" als WERT-Member
+//! (customtablemodel.h) sowie "LookForPathThread lookForPathThread;".
+//! Deren run()-Methoden sind VOLLSTAENDIG INLINE in sqldriver.h bzw.
+//! customtablemodel.h definiert und ueberschreiben Task::run() bzw.
+//! QThread::run() virtuell -- die Vtable-Pflicht (s. Kommentar oben zu
+//! CustomTableModel) zwingt den Compiler, diese run()-Bodies zu bauen,
+//! sobald CustomTableModel::~CustomTableModel() (oben definiert) irgendwo
+//! im gelinkten Code gebraucht wird. Die darin aufgerufenen Funktionen/
+//! Methoden sind selbst aber NICHT inline (echte sqldriver.cpp/
+//! sqlconnections.cpp/processhelper.cpp-Implementierungen, die wir laut
+//! CLAUDE.md bewusst nicht mitbauen) -- daher hier dieselben No-Op-Stubs
+//! wie oben fuer den Rest von CustomTableModel. SqlSelectThread/
+//! UpdateFieldInTableThread selbst sind Q_OBJECT-Klassen; ihre
+//! metaObject()/qt_metacast()/qt_metacall() sowie die von run() per emit
+//! ausgeloesten Signale (selectFinished()/resultReady()/upDatedEntry())
+//! werden NICHT hier von Hand nachgebaut, sondern durch echtes MOC
+//! abgedeckt -- s. "HEADERS += ../ProSoundFinder/sqldriver.h" in
+//! PSNPlayerTestNew.pro. SqlDeleteThread wird in customtablemodel.h nicht
+//! instanziiert (Member dort auskommentiert) und braucht daher aktuell
+//! keine eigenen Stubs.
+
+//! Freie Funktion (multiconnection.h, ueber sqldriver.h transitiv
+//! eingebunden) -- von SqlSelectThread::run()/UpdateFieldInTableThread::
+//! run() fuer Transaction/Commit/Rollback verwendet.
+QSqlDatabase currentGlobalConnection(QString /*connectionName*/)
+{
+    return QSqlDatabase();
+}
+
+//! SqlConnections ist ein reines (nicht-QObject-abgeleitetes) Singleton
+//! (sqlconnections.h); der eigentliche Konstruktor ist dort bereits inline
+//! definiert, instance()/drop() ebenso -- nur die beiden folgenden
+//! Methoden sowie das statische m_Instance-Member sind dort nur deklariert.
+bool SqlConnections::cloneConnection(QString &/*connectionName*/)
+{
+    return false;
+}
+
+bool SqlConnections::removeConnection(QString /*connectionName*/)
+{
+    return false;
+}
+
+//! Definition des in sqlconnections.h nur deklarierten statischen Members
+//! (von SqlConnections::instance(), komplett inline im Header, referenziert).
+SqlConnections *SqlConnections::m_Instance = nullptr;
+
+//! SqLiteDriver (sqldriver.h) -- Konstruktor/Destruktor werden gebraucht,
+//! weil SqlSelectThread ihn als Wert-Member haelt ("SqLiteDriver sqlDriver;")
+//! bzw. SqlDeleteThread/UpdateFieldInTableThread ihn per "new SqLiteDriver(
+//! threadedConnectionName)" anlegen. Alle uebrigen virtuellen Methoden von
+//! SqLiteDriver (createTables(), getDataBaseVersion(), ...) werden von
+//! keinem hier kompilierten Code referenziert und brauchen daher (bislang)
+//! keine eigenen Stubs.
+SqLiteDriver::SqLiteDriver(const QString &/*connectionName*/, QWidget */*parent*/)
+{
+}
+
+SqLiteDriver::~SqLiteDriver()
+{
+}
+
+//! LookForPathThread (customtablemodel.h, Zeilen 43-83) -- run() dort nur
+//! deklariert ("muss in cpp-Datei definiert werden"), reale Implementierung
+//! liegt in ProSoundFinders unkompilierter customtablemodel.cpp.
+void LookForPathThread::run()
+{
+}
+
+//! ProcessHelper (processhelper.h) -- wird in ProSoundFinder/
+//! helperfunctions.cpp's askForProjectDir() per Wert/Stack-Objekt verwendet
+//! (dort mitkompiliert, s. SOURCES in PSNPlayerTestNew.pro).
+ProcessHelper::ProcessHelper(QWidget */*parent*/)
+{
+}
+
+ProcessHelper::~ProcessHelper()
+{
+}
+
+bool ProcessHelper::setPermissionsAll(QString /*path*/)
+{
+    return false;
+}
+
+//! ProcessHelper ist jetzt (s. .pro) echt gemoct -- qt_metacall braucht
+//! daher (gleiches Muster wie CustomTableModel/CustomSortFilterProxModel
+//! oben) No-Op-Definitionen fuer ALLE eigenen Slots, nicht nur die
+//! tatsaechlich aufgerufenen.
+void ProcessHelper::on_readyReadStandardOutput()
+{
+}
+
+void ProcessHelper::processError(QProcess::ProcessError)
+{
+}
+
+//! SndfileMetadataSet (sndfilemetadataset.h) -- Wert-Member von
+//! ProcessHelper ("SndfileMetadataSet sndfileMetadataSet;"), wird also
+//! automatisch mitkonstruiert, sobald ProcessHelper::ProcessHelper() oben
+//! gebraucht wird. Keine Q_OBJECT-Klasse, keine virtuellen Methoden -- nur
+//! der Konstruktor selbst ist hier noetig, die uebrigen deklarierten
+//! Methoden (setMetadata/missing_param/usage_exit/...) werden von einem
+//! No-Op-Konstruktor nicht aufgerufen. Ihr eigenes Wert-Member
+//! "SndFileCommon sndFileCommon;" ist unproblematisch: SndFileCommon wird
+//! bereits ECHT mitkompiliert (sndfilecommon.cpp steht in SOURCES).
+SndfileMetadataSet::SndfileMetadataSet()
+{
+}
+
+//! ---- SqLiteDriver (sqldriver.h): vollstaendige Vtable-Abdeckung ----
+//! Sobald SqLiteDriver::SqLiteDriver()/~SqLiteDriver() oben eine echte
+//! (wenn auch leere) Definition bekommen, muss der Compiler ueberall dort,
+//! wo ein vollstaendiges SqLiteDriver-Objekt gebaut wird (Wert-Member von
+//! SqlSelectThread, "new SqLiteDriver(...)" in SqlDeleteThread/
+//! UpdateFieldInTableThread/UpdateMetadataThread/UpDateDatabaseThread),
+//! eine komplette Vtable fuer den exakten Typ SqLiteDriver emittieren --
+//! das verlangt eine aufloesbare Adresse fuer JEDE deklarierte virtuelle
+//! Methode der Klasse, unabhaengig davon, ob sie im Testprojekt jemals
+//! tatsaechlich aufgerufen wird (dieselbe Vtable-Pflicht wie bei
+//! CustomTableModel oben, hier nur mit deutlich mehr deklarierten
+//! Methoden). Die echte SQL/DB-Logik dafuer liegt in ProSoundFinders
+//! sqldriver.cpp, die wir laut CLAUDE.md bewusst nicht mitbauen -- daher
+//! auch hier reine No-Op-Definitionen, 1:1 gegen die Deklarationen in
+//! sqldriver.h (Zeilen 84-401) abgeglichen. connectionName() und
+//! setStopLoop() sind dort bereits vollstaendig inline definiert und
+//! brauchen daher KEINEN Stub.
+bool SqLiteDriver::init(bool)
+{
+    return false;
+}
+
+bool SqLiteDriver::createTables()
+{
+    return false;
+}
+
+void SqLiteDriver::setConnectionName(QString)
+{
+}
+
+void SqLiteDriver::enableForeigKeySupport(bool)
+{
+}
+
+bool SqLiteDriver::isForeigKeeySupportEnabled()
+{
+    return false;
+}
+
+QString SqLiteDriver::getDataBaseVersion()
+{
+    return QString();
+}
+
+QVector<int> SqLiteDriver::databaseVersion()
+{
+    return QVector<int>();
+}
+
+void SqLiteDriver::setDatabaseVersion(QString)
+{
+}
+
+void SqLiteDriver::setDatabaseVersion(int, int, int)
+{
+}
+
+void SqLiteDriver::setDefaults()
+{
+}
+
+void SqLiteDriver::vacuum()
+{
+}
+
+void SqLiteDriver::integrityCheck()
+{
+}
+
+QStringList SqLiteDriver::unfinishedTasks()
+{
+    return QStringList();
+}
+
+void SqLiteDriver::setTaksFinished(QString, bool)
+{
+}
+
+int SqLiteDriver::elapsedSinceLastTask(QString)
+{
+    return -1;
+}
+
+void SqLiteDriver::addTask(QString, bool)
+{
+}
+
+void SqLiteDriver::removeTask(QString)
+{
+}
+
+QStringList SqLiteDriver::columnNames(QSqlDatabase, QString)
+{
+    return QStringList();
+}
+
+QStringList SqLiteDriver::getAllTableNames(QString)
+{
+    return QStringList();
+}
+
+bool SqLiteDriver::prepareInsertRowInTable(QSqlDatabase, QString, QStringList)
+{
+    return false;
+}
+
+bool SqLiteDriver::bindInsertRowInTable(QString, QVariantList)
+{
+    return false;
+}
+
+bool SqLiteDriver::insertRowInTable(QSqlDatabase, QString, QStringList)
+{
+    return false;
+}
+
+bool SqLiteDriver::prepareUpdateCellInTable(QSqlDatabase, const QString &, const QString &)
+{
+    return false;
+}
+
+bool SqLiteDriver::bindUpdateCellInTable(const QString &, const QString &, const QVariant &, int)
+{
+    return false;
+}
+
+bool SqLiteDriver::updateColumnInRow(QSqlDatabase, QString, QString, QString, QString, QString)
+{
+    return false;
+}
+
+QStringList SqLiteDriver::selectColumnInTable(const QSqlDatabase &, const QString &, const QString &, const QString &, const QString &)
+{
+    return QStringList();
+}
+
+QStringList SqLiteDriver::selectAllRowsForGivenColumn(QSqlDatabase, QString, QString, QString, QString, QString)
+{
+    return QStringList();
+}
+
+QList<QStringList> SqLiteDriver::seletRowsForColumn(QSqlDatabase, QString, QList<RelationTracking>, QString, QString)
+{
+    return QList<QStringList>();
+}
+
+QList<QStringList> SqLiteDriver::select(QSqlDatabase, QString, QList<RelationTracking>, QString)
+{
+    return QList<QStringList>();
+}
+
+QString SqLiteDriver::selectStatementForTable(QSqlDatabase, QString)
+{
+    return QString();
+}
+
+void SqLiteDriver::updateDataBase21_to4(QString)
+{
+}
+
+bool SqLiteDriver::updateFieldInTable(QString, QString, QString, QString, QString)
+{
+    return false;
+}
+
+QString SqLiteDriver::idfromPathSoundfiles(QSqlDatabase, QString)
+{
+    return QString();
+}
+
+QString SqLiteDriver::idfromFilenameSoundfiles(QSqlDatabase, QString)
+{
+    return QString();
+}
+
+QString SqLiteDriver::idfromRelativePathSoundfiles(QSqlDatabase, QString)
+{
+    return QString();
+}
+
+QSqlError SqLiteDriver::selectSoundfilesForColumnArchiv(QSqlDatabase, QString, int, QStringList &)
+{
+    return QSqlError();
+}
+
+QSqlError SqLiteDriver::selectSoundfilesForColumnArchiv(QSqlDatabase, int, QList<QPair<QString, int>> &)
+{
+    return QSqlError();
+}
+
+void SqLiteDriver::deleteByIdPrepare(QSqlDatabase, bool)
+{
+}
+
+bool SqLiteDriver::deleteByIdBind(int, bool)
+{
+    return false;
+}
+
+bool SqLiteDriver::deleteOprhants(QSqlDatabase, int &)
+{
+    return false;
+}
+
+bool SqLiteDriver::deleteOprhants(QSqlDatabase, QVector<int> *, int &)
+{
+    return false;
+}
+
+void SqLiteDriver::deleteSoundfilesByIdPrepare(QSqlDatabase, bool)
+{
+}
+
+void SqLiteDriver::deleteSoundfilesByIdExecute(int, bool)
+{
+}
+
+void SqLiteDriver::deleteSoundfilesById(QSqlDatabase, int, bool)
+{
+}
+
+QStringList SqLiteDriver::deleteTableSoundfilesDuplicateData(QSqlDatabase)
+{
+    return QStringList();
+}
+
+bool SqLiteDriver::prepareInsertAllTables(QSqlDatabase, const psfArchiveEntry &, QString)
+{
+    return false;
+}
+
+int SqLiteDriver::bindInsertAllTables(QSqlDatabase, QList<QVariant>, const psfArchiveEntry &, int, int)
+{
+    return -1;
+}
+
+bool SqLiteDriver::prepareUpdateAllTables(QSqlDatabase, const psfArchiveEntry &)
+{
+    return false;
+}
+
+bool SqLiteDriver::bindUpdateAllTables(QSqlDatabase, const psfArchiveEntry &, QList<QVariant>, int, qlonglong)
+{
+    return false;
+}
+
+bool SqLiteDriver::createTableFiles()
+{
+    return false;
+}
+
+bool SqLiteDriver::createTableFileInfo()
+{
+    return false;
+}
+
+void SqLiteDriver::dropTableFiles()
+{
+}
+
+void SqLiteDriver::makeVersion21_tableFromfromVers2table()
+{
+}
+
+void SqLiteDriver::createTableSoundfilesVers21()
+{
+}
+
+void SqLiteDriver::dropTableSoundFiles()
+{
+}
+
+void SqLiteDriver::createTableSoundInfo()
+{
+}
+
+void SqLiteDriver::dropTableSoundInfo()
+{
+}
+
+void SqLiteDriver::createTableBextInfo()
+{
+}
+
+void SqLiteDriver::dropTableBextInfo()
+{
+}
+
+void SqLiteDriver::createTableMusicMetaData()
+{
+}
+
+void SqLiteDriver::deleteTableMusicMetaData()
+{
+}
+
+void SqLiteDriver::createTableArchivV4()
+{
+}
+
+void SqLiteDriver::deleteTableArchiv()
+{
+}
+
+bool SqLiteDriver::createTableArchivData(QSqlDatabase, QString, QString)
+{
+    return false;
+}
+
+bool SqLiteDriver::updateTableArchivData(QSqlDatabase, QString, QString)
+{
+    return false;
+}
+
+QList<QStringList> SqLiteDriver::selectAllArchiveData(QSqlDatabase)
+{
+    return QList<QStringList>();
+}
+
+bool SqLiteDriver::deleteTableArchivData(QSqlDatabase, int)
+{
+    return false;
+}
+
+bool SqLiteDriver::checkTableArchivRelationData(QSqlDatabase, int)
+{
+    return false;
+}
+
+bool SqLiteDriver::deleteTableArchivRelationData(QSqlDatabase, int)
+{
+    return false;
+}
+
+QString SqLiteDriver::idforRowTableArchiv(QSqlDatabase, QString)
+{
+    return QString();
+}
+
+bool SqLiteDriver::findTableArchivData(QSqlDatabase, QString)
+{
+    return false;
+}
+
+bool SqLiteDriver::getAllArchivePaths(QSqlDatabase, QStringList &)
+{
+    return false;
+}
+
+void SqLiteDriver::createTableBinContentV4()
+{
+}
+
+void SqLiteDriver::deleteTableBinContent()
+{
+}
+
+bool SqLiteDriver::insertTableBinContentData(QSqlDatabase, QString, int, QString)
+{
+    return false;
+}
+
+bool SqLiteDriver::deleteTableBinContentData(QSqlDatabase, QString)
+{
+    return false;
+}
+
+bool SqLiteDriver::deleteTableBinContentData(QSqlDatabase, int, int)
+{
+    return false;
+}
+
+void SqLiteDriver::createTableBins()
+{
+}
+
+void SqLiteDriver::deleteTableBins()
+{
+}
+
+bool SqLiteDriver::insertColumnInTable(QSqlDatabase, QString)
+{
+    return false;
+}
+
+bool SqLiteDriver::deleteTableBinsData(QSqlDatabase, int)
+{
+    return false;
+}
+
+bool SqLiteDriver::deleteTableBinsRelationData(QSqlDatabase, int)
+{
+    return false;
+}
+
+QString SqLiteDriver::translateIdToBinnameTableBins(QSqlDatabase, int)
+{
+    return QString();
+}
+
+long SqLiteDriver::translateIdToBin_IdTableBins(QSqlDatabase, QString)
+{
+    return -1;
+}
+
+bool SqLiteDriver::renameTableBins()
+{
+    return false;
+}
+
+bool SqLiteDriver::alterTableBins()
+{
+    return false;
+}
+
+void SqLiteDriver::createTableGenres()
+{
+}
+
+void SqLiteDriver::alterTableGenres21_to_4()
+{
+}
+
+void SqLiteDriver::dropTableGenres()
+{
+}
+
+void SqLiteDriver::dropTableTmp_genres()
+{
+}
+
+void SqLiteDriver::initTableGenres()
+{
+}
+
+bool SqLiteDriver::updateTableGenres(QString, int)
+{
+    return false;
+}
+
+QSqlQuery *SqLiteDriver::prepareTableGenres()
+{
+    return nullptr;
+}
+
+bool SqLiteDriver::bindTableGenres(QString, int)
+{
+    return false;
+}
+
+void SqLiteDriver::createTableCustomMetaData()
+{
+}
+
+void SqLiteDriver::dropTableCustomMetaData()
+{
+}
+
+void SqLiteDriver::createTableCategorys()
+{
+}
+
+void SqLiteDriver::init_TableCategorys()
+{
+}
+
+void SqLiteDriver::dropTableCategorys()
+{
+}
+
+bool SqLiteDriver::updateTableCategorys(QString)
+{
+    return false;
+}
+
+void SqLiteDriver::createTableMaterials()
+{
+}
+
+void SqLiteDriver::dropTableMaterials()
+{
+}
+
+void SqLiteDriver::init_TableMaterials()
+{
+}
+
+bool SqLiteDriver::updateTableMaterials(QString)
+{
+    return false;
+}
+
+void SqLiteDriver::createTableIxmlMetadataGlobal2()
+{
+}
+
+void SqLiteDriver::createTableIxmlMetadataGlobal()
+{
+}
+
+void SqLiteDriver::intitTableIxmlMetadataGlobal()
+{
+}
+
+void SqLiteDriver::intitTableIxmlMetadataGlobal2()
+{
+}
+
+void SqLiteDriver::alterTableIxmlMetadataGlobal21_to_22()
+{
+}
+
+void SqLiteDriver::alterTableIxmlMetadataGlobal21_to_4()
+{
+}
+
+void SqLiteDriver::createTableIxmlMetadataSpeed()
+{
+}
+
+void SqLiteDriver::initTableIxmlMetadataSpeed()
+{
+}
+
+void SqLiteDriver::createTableIxmlMetadataHistory()
+{
+}
+
+void SqLiteDriver::createTableIxmlMetadataTrackCount()
+{
+}
+
+void SqLiteDriver::createTableIxmlMetadataTrack()
+{
+}
+
+void SqLiteDriver::createTableIxmlMetadataFileSet()
+{
+}
+
+void SqLiteDriver::initTableIxmlMetadataFileSet()
+{
+}
+
+void SqLiteDriver::createTableIxmlMetadataUser()
+{
+}
+
+void SqLiteDriver::initTableIxmlMetadataUser()
+{
+}
+
+void SqLiteDriver::createTableProject()
+{
+}
+
+bool SqLiteDriver::initTableProject()
+{
+    return false;
+}
+
+bool SqLiteDriver::dropTableProject()
+{
+    return false;
+}
+
+bool SqLiteDriver::insertTableProjectField(QString, QString, QString)
+{
+    return false;
+}
+
+bool SqLiteDriver::intitTableProjectContent()
+{
+    return false;
+}
+
+void SqLiteDriver::dropTableProjectontent()
+{
+}
+
+bool SqLiteDriver::createTableProjectData(QSqlDatabase, QString)
+{
+    return false;
+}
+
+void SqLiteDriver::createTableProjectContent()
+{
+}
+
+//! private-Sektion (ebenfalls virtuell, gleicher Grund):
+bool SqLiteDriver::createAllTables()
+{
+    return false;
+}
+
+QString SqLiteDriver::checkDataBaseVersion()
+{
+    return QString();
+}
+
+void SqLiteDriver::init_genreListID3V1()
+{
+}
+
+void SqLiteDriver::init_categoryList()
+{
+}
+
+void SqLiteDriver::init_materialList()
+{
+}
+
+void SqLiteDriver::init_emotionList()
+{
+}
+
+void SqLiteDriver::init_keysList()
+{
+}
+
+void SqLiteDriver::init_modeList()
+{
+}
+
+//! ---- ScanHelper (scanHelper.h): nur die von UpdateMetadataThread::run()
+//! (sqldriver.h) tatsaechlich verwendeten Methoden ----
+//! UpdateMetadataThread ist zwar in unserem eigenen Code nie konstruiert,
+//! aber (wie SqlSelectThread/UpdateFieldInTableThread) eine vollstaendig
+//! inline in sqldriver.h definierte Q_OBJECT-Klasse mit zugaenglichem
+//! Default-Konstruktor und virtuellem run()-Override -- MOC/Qt6s
+//! Metaobjekt-Erzeugung fuer sqldriver.h (jetzt echt in HEADERS, s. .pro)
+//! verlangt dafuer ebenfalls eine vollstaendige Vtable, was run()s Body
+//! (mit einem lokalen Stack-Objekt "ScanHelper scanHelper;") mit
+//! hineinzieht. Keine eigene Q_OBJECT-Klasse -- nur Konstruktor/Destruktor
+//! + die vier von run() aufgerufenen Methoden noetig.
+ScanHelper::ScanHelper()
+{
+}
+
+ScanHelper::~ScanHelper()
+{
+}
+
+QList<QVariant> ScanHelper::getAllMetadataList(bool, const psfArchiveEntry &)
+{
+    return QList<QVariant>();
+}
+
+QStringList ScanHelper::getGenresList()
+{
+    return QStringList();
+}
+
+bool ScanHelper::open(QString)
+{
+    return false;
+}
+
+void ScanHelper::close()
+{
+}

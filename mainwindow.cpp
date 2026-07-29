@@ -9,6 +9,9 @@
 #include <QApplication>
 #include <QtAwesome.h>
 #include <pSndPlayer/psnddefinitions.h>
+//! NEU: fuer MediaSource::getFilename() im sourceChanged-Handler, s.
+//! createPlayerDock().
+#include <pSndPlayer/mediasource.h>
 #include <QDropEvent>
 #include <QMimeData>
 #include <QSettings>
@@ -200,13 +203,24 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event)
                 settings.beginGroup(PSNTEST_SETTINGS_GROUP);
                 settings.setValue(PSNTEST_LAST_DROPPED_FILE_KEY, path);
 
-                //! NEU: s. Chat "Mehrfach-Lade-Test" -- zusaetzlich ALLE bei
-                //! diesem Drop enthaltenen Dateien (nicht nur die erste) an
-                //! die rollierende Liste anhaengen, s. loadDroppedFiles().
-                //! Erlaubt, das Mehrfach-Lade-Szenario einfach durch
-                //! Draufziehen mehrerer Dateien auf einmal zu erzeugen, ohne
-                //! zusaetzliche UI.
-                QStringList droppedFiles = settings.value(PSNTEST_DROPPED_FILES_KEY).toStringList();
+                //! NEU: s. Chat "Mehrfach-Lade-Test" -- ALLE bei diesem Drop
+                //! enthaltenen Dateien (nicht nur die erste) in die Liste
+                //! uebernehmen, s. loadDroppedFiles(). Erlaubt, das
+                //! Mehrfach-Lade-Szenario einfach durch Draufziehen mehrerer
+                //! Dateien auf einmal zu erzeugen, ohne zusaetzliche UI.
+                //!
+                //! NEU: s. Chat "eine einzelne Drop-Datei loescht die Liste,
+                //! mehrere Drop-Dateien bilden eine Liste". Die Liste wird
+                //! jetzt bei JEDEM Drop ERSETZT statt ergaenzt -- vorher wurde
+                //! hier der gespeicherte Stand eingelesen und angehaengt, was
+                //! bedeutete: wer EINE Datei droppte, um einen Einzeldatei-Fall
+                //! zu testen, bekam beim naechsten Start trotzdem die vier
+                //! zuvor gedroppten Dateien mitgeladen -- also unfreiwillig
+                //! genau das Mehrfach-Lade-Szenario, das isoliert werden
+                //! sollte. Ein Drop mit einer Datei ergibt damit eine Liste der
+                //! Laenge 1, ein Drop mit n Dateien eine Liste der Laenge n
+                //! (weiterhin gedeckelt auf PSNTEST_MAX_DROPPED_FILES).
+                QStringList droppedFiles;
                 for (const QUrl &url : dropEvent->mimeData()->urls()) {
                     const QString p = url.toLocalFile();
                     if (!p.isEmpty() && QFileInfo::exists(p)) {
@@ -221,28 +235,14 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event)
                 qDebug() << "MainWindow eventFilter: gespeichert als letzte Datei:" << path
                          << "-- rollierende Liste jetzt:" << droppedFiles;
 
-                //! NEU: s. Chat "Header zeigt bei Drop einer einzelnen Datei nicht
-                //! die Datei". Der normale Drop-Pfad (GraphicsView::dropEvent(),
-                //! PSndPlayer/waveform.cpp) emittiert publishdropEvent(), das
-                //! WaveformController::on_publishdropEvent_received()
-                //! (waveformcontroller.cpp) OHNE Umweg ueber PlayerWidget::addFile()
-                //! direkt an PSndPlayer::setSource() weiterreicht. PlayerWidget::
-                //! _qCurrentPath (aus dem on_Source_Changed() den Header
-                //! beschriftet, s. playerwidgetV2.cpp) wird aber NUR von addFile()/
-                //! addFileRecursion() gesetzt -- bleibt bei diesem Pfad also auf dem
-                //! alten Stand. scheduleLoad() unten faengt das fuer Datei 2..n eines
-                //! Mehrfach-Drops ab (ruft addFile() + updatePlayerHeader() auf),
-                //! fuer Datei 1 (bzw. den Normalfall: genau eine gedroppte Datei)
-                //! fehlte der updatePlayerHeader()-Aufruf bisher komplett. Fix: nach
-                //! der synchron durchlaufenden Drop-Verarbeitungskette (s. Doku bei
-                //! GraphicsView::dropEvent(), laeuft direkt im Anschluss an diesen
-                //! eventFilter-Aufruf synchron durch) im naechsten Event-Loop-
-                //! Durchlauf den Header auch fuer Datei 1 explizit nachziehen --
-                //! ruft bewusst NICHT addFile() erneut auf, das laedt die erste
-                //! Datei bereits selbst.
-                QTimer::singleShot(0, this, [this, path](){
-                    updatePlayerHeader(path);
-                });
+                //! NEU: Der frueher hier stehende QTimer::singleShot(0, ...)
+                //! -> updatePlayerHeader(path) ist ENTFALLEN. Er beschriftete den
+                //! Header mit der Datei, deren Laden gerade ANGESTOSSEN wurde --
+                //! nicht mit der, die hoerbar ist. Bei mehreren gedroppten Dateien
+                //! (500 ms Staffelung, Ladevorgang laut Log aber 1-3,6 s) lief er
+                //! dem tatsaechlich klingenden File dadurch voraus. Der Header
+                //! wird jetzt reaktiv ueber PSndPlayer::sourceChanged() gesetzt,
+                //! s. createPlayerDock().
 
                 //! NEU: s. Chat "es wird keine Liste abgearbeitet" -- werden
                 //! MEHRERE Dateien auf einmal gedroppt, direkt in DIESER
@@ -314,9 +314,10 @@ void MainWindow::scheduleLoad(const QString &path, int delayMs)
         t->deleteLater();
         qDebug() << "MainWindow scheduleLoad: lade" << path;
         playerWidget->addFile(path);
-        //! s. updatePlayerHeader() im Header -- NACH addFile(), um den dort
-        //! synchron mit dem alten Pfad beschrifteten Header zu korrigieren.
-        updatePlayerHeader(path);
+        //! NEU: Der frueher hier stehende updatePlayerHeader(path)-Aufruf ist
+        //! ENTFALLEN -- s. Begruendung im Drop-Zweig des eventFilter() und bei
+        //! createPlayerDock(). Er setzte den Header auf die gerade angestossene
+        //! Datei, obwohl deren Laden erst Sekunden spaeter fertig ist.
     });
     _pendingLoadTimers.append(t);
     t->start(delayMs);
@@ -388,6 +389,47 @@ void MainWindow::createPlayerDock()
 
     qDebug() << "playerWidget->frameSize() " << playerWidget->frameSize();
     playerWidget->setObjectName("playerWidget");
+
+    //! NEU: s. Chat "der header im player wird nicht upgedatet durch das
+    //! aktuell hoerbare file". updatePlayerHeader() wurde bisher NUR beim
+    //! ANSTOSSEN eines Ladevorgangs gerufen (nach dem Drop bzw. in
+    //! scheduleLoad()) -- also push-basiert zum falschen Zeitpunkt. Bei
+    //! gestaffelten Mehrfach-Ladevorgaengen setzte damit jeder Timer den
+    //! Header auf die Datei, die er gerade anstoesst, waehrend hoerbar noch
+    //! eine ganz andere lief; die zuletzt angestossene gewann. Aus demselben
+    //! Grund half auch PlayerWidget::filePlayingStatus() nicht weiter -- das
+    //! transportiert _qCurrentPath, und genau diese Variable wird beim
+    //! Drop-Pfad (GraphicsView::dropEvent -> publishdropEvent ->
+    //! WaveformController::on_publishdropEvent_received -> PSndPlayer::
+    //! setSource(), ohne Umweg ueber PlayerWidget::addFile()) gar nicht
+    //! gesetzt.
+    //!
+    //! Verlaesslich ist allein PSndPlayer::sourceChanged() -- laut dessen
+    //! Doku (psndplayer.h) "always emitted when we did try to set a new
+    //! Source and the result is ready". Wir haengen uns also direkt dort an
+    //! und ziehen den Namen aus der gelieferten MediaSource. Der
+    //! PSndPlayer ist ein QObject-Kind des PlayerWidget (s. dessen
+    //! Konstruktor: mediaPlayer(new psndplayer::PSndPlayer(this))), das
+    //! Member selbst aber privat -- findChild() ist deshalb der Weg, der
+    //! OHNE Aenderung an ProSoundFinder auskommt.
+    //!
+    //! nullptr ist ein gueltiger Fall: sourceChanged() liefert ihn, wenn das
+    //! Oeffnen fehlgeschlagen ist (s. Doku dort) -- dann den Header leeren,
+    //! statt den alten Namen stehen zu lassen.
+    if(psndplayer::PSndPlayer *mp = playerWidget->findChild<psndplayer::PSndPlayer*>()){
+        connect(mp, &psndplayer::PSndPlayer::sourceChanged, this,
+                [this](psndplayer::MediaSource *mediaSource){
+            if(!mediaSource){
+                updatePlayerHeader(QString());
+                return;
+            }
+            updatePlayerHeader(QString::psnd_fromStdString(mediaSource->getFilename()));
+        });
+    }
+    else{
+        qWarning() << "MainWindow createPlayerDock: PSndPlayer-Kind im PlayerWidget nicht gefunden --"
+                   << "Header wird nicht auf Quellwechsel aktualisiert.";
+    }
 
     if(this->playerWidget->wasPlaying()){
         switch(this->playerWidget->rememberedState()){
