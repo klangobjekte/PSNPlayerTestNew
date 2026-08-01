@@ -4,6 +4,14 @@
 #include "playerwidgetV2.h"
 #include "psfdefinitions.h"
 #include "preferencesdialog.h"
+//! NEU: fuer die beiden Betriebsart-Actions in createMenus()
+//! (setPauseOnStop()/setSequentialPlay()).
+#include "preferencescontrol.h"
+#include <QMenuBar>
+#include <QMenu>
+#include <QAction>
+#include <QActionGroup>
+#include <QKeySequence>
 #include <QWidget>
 #include <QDebug>
 #include <QApplication>
@@ -78,6 +86,9 @@ MainWindow::MainWindow(QWidget *parent)
     new PreferencesDialog(this);
 
     createPlayerDock();
+    //! NEU: s. Doku bei createMenus() im Header -- muss nach createPlayerDock()
+    //! stehen, alle Actions greifen auf playerWidget zu.
+    createMenus();
 
     //! s. eventFilter(): global auf qApp installiert, damit wir QEvent::Drop
     //! sehen, auch wenn das eigentliche Drop-Ziel ein Enkel-Widget tief in
@@ -104,6 +115,268 @@ MainWindow::MainWindow(QWidget *parent)
     });
     loadWindowGeometry();
     loadOutputSettings();
+}
+
+//! NEU: s. Doku bei createMenus() im Header. Nachbildung des Player-/
+//! Waveform-Teils aus ProSoundFinders MainWindow-Menue. Bewusst ueber
+//! dieselben oeffentlichen Aufrufe wie dort -- die Fundstellen stehen jeweils
+//! als Kommentar dabei, damit ein Abgleich moeglich bleibt, wenn sich
+//! ProSoundFinder aendert.
+void MainWindow::createMenus()
+{
+    if(!playerWidget){
+        qWarning() << "MainWindow::createMenus: kein playerWidget -- Menue wird nicht angelegt";
+        return;
+    }
+
+    //! ++++ Player ++++ (ProSoundFinder: playAction/playReverseAction/
+    //! pauseAction/stopAction im exklusiven playerActionsAlignmentGroup,
+    //! mainwindow.cpp dort ~6090-6154)
+    QMenu *playerMenu = menuBar()->addMenu(tr("&Player"));
+
+    _playAction = new QAction(tr("&Play"), this);
+    _playAction->setCheckable(true);
+    //! NEU: s. Doku bei syncTransportActions() -- die LEERTASTE wandert
+    //! zustandsabhaengig zwischen Play und Pause, genau wie in ProSoundFinder.
+    //! Startzustand ist "gestoppt", also beginnt sie hier (identisch zu
+    //! mainwindow.cpp:6094 dort: playAction->setShortcut(tr(" "))).
+    _playAction->setShortcut(QKeySequence(Qt::Key_Space));
+    connect(_playAction, &QAction::triggered, this, [this](){ playerWidget->play(); });
+
+    _playReverseAction = new QAction(tr("Play &Reverse"), this);
+    _playReverseAction->setCheckable(true);
+    connect(_playReverseAction, &QAction::triggered, this, [this](){ playerWidget->playRev(); });
+
+    _pauseAction = new QAction(tr("Pa&use"), this);
+    _pauseAction->setCheckable(true);
+    connect(_pauseAction, &QAction::triggered, this, [this](){ playerWidget->pause(); });
+
+    _stopAction = new QAction(tr("&Stop"), this);
+    _stopAction->setCheckable(true);
+    _stopAction->setChecked(true);
+    connect(_stopAction, &QAction::triggered, this, [this](){ playerWidget->stop(); });
+
+    //! Exklusiv wie in ProSoundFinder -- immer genau ein Zustand markiert.
+    _transportGroup = new QActionGroup(this);
+    _transportGroup->addAction(_playAction);
+    _transportGroup->addAction(_playReverseAction);
+    _transportGroup->addAction(_pauseAction);
+    _transportGroup->addAction(_stopAction);
+
+    playerMenu->addAction(_playAction);
+    playerMenu->addAction(_playReverseAction);
+    playerMenu->addAction(_pauseAction);
+    playerMenu->addAction(_stopAction);
+    playerMenu->addSeparator();
+
+    //! ProSoundFinder: returnToZeroAction -> PlayerWidget::on_setToZeroAction_triggered()
+    QAction *returnToZeroAction = new QAction(tr("Return to &Zero"), this);
+    connect(returnToZeroAction, &QAction::triggered, this,
+            [this](){ playerWidget->on_setToZeroAction_triggered(true); });
+    playerMenu->addAction(returnToZeroAction);
+    playerMenu->addSeparator();
+
+    //! ProSoundFinder: repeatAction -> PlayerWidget::setRepeat(bool), Ctrl+R
+    _repeatAction = new QAction(tr("Re&peat"), this);
+    _repeatAction->setCheckable(true);
+    _repeatAction->setShortcut(QKeySequence(tr("Ctrl+R")));
+    connect(_repeatAction, &QAction::triggered, this,
+            [this](bool checked){ playerWidget->setRepeat(checked); });
+    playerMenu->addAction(_repeatAction);
+    playerMenu->addSeparator();
+
+    //! ProSoundFinder: increaseSpeedAction/decreaseSpeedAction
+    QAction *speedUpAction = new QAction(tr("Speed &+"), this);
+    connect(speedUpAction, &QAction::triggered, this, [this](){ playerWidget->increaseSpeed(); });
+    QAction *speedDownAction = new QAction(tr("Speed &-"), this);
+    connect(speedDownAction, &QAction::triggered, this, [this](){ playerWidget->decreaseSpeed(); });
+    playerMenu->addAction(speedUpAction);
+    playerMenu->addAction(speedDownAction);
+
+    //! ++++ Waveform ++++ (ProSoundFinder: scrollingActionGroup ~6132-6147,
+    //! Handler on_noScrollingAction_triggered() usw. ~7087-7103)
+    QMenu *waveformMenu = menuBar()->addMenu(tr("&Waveform"));
+
+    _noScrollingAction = new QAction(tr("&No Scrolling"), this);
+    _noScrollingAction->setCheckable(true);
+    connect(_noScrollingAction, &QAction::triggered, this,
+            [this](){ playerWidget->setScrollType(PSNDWAVE::NO_SCROLLING); });
+
+    _pageScrollingAction = new QAction(tr("&Page Scrolling"), this);
+    _pageScrollingAction->setCheckable(true);
+    connect(_pageScrollingAction, &QAction::triggered, this,
+            [this](){ playerWidget->setScrollType(PSNDWAVE::PAGE_SCROLLING); });
+
+    _continuousScrollingAction = new QAction(tr("&Continuous Scrolling"), this);
+    _continuousScrollingAction->setCheckable(true);
+    connect(_continuousScrollingAction, &QAction::triggered, this,
+            [this](){ playerWidget->setScrollType(PSNDWAVE::CONTINUOUS_SCROLLING); });
+
+    _scrollingGroup = new QActionGroup(this);
+    _scrollingGroup->addAction(_noScrollingAction);
+    _scrollingGroup->addAction(_pageScrollingAction);
+    _scrollingGroup->addAction(_continuousScrollingAction);
+    //! Vorbelegung wie WaveformController::_scrolling (PSNDWAVE::PAGE_SCROLLING,
+    //! s. waveformcontroller.h) -- das Menue soll den Ist-Zustand zeigen, nicht
+    //! einen anderen behaupten.
+    _pageScrollingAction->setChecked(true);
+
+    waveformMenu->addAction(_noScrollingAction);
+    waveformMenu->addAction(_pageScrollingAction);
+    waveformMenu->addAction(_continuousScrollingAction);
+    waveformMenu->addSeparator();
+
+    //! ProSoundFinder: verticalZoomInAction/verticalZoomOutAction ->
+    //! PlayerWidget::on_waveVPlusBtn_clicked()/on_waveVMinusBtn_clicked()
+    QAction *vZoomInAction = new QAction(tr("Vertical Zoom &In"), this);
+    vZoomInAction->setShortcut(QKeySequence(tr("Ctrl+Alt+]")));
+    connect(vZoomInAction, &QAction::triggered, this,
+            [this](){ playerWidget->on_waveVPlusBtn_clicked(); });
+    QAction *vZoomOutAction = new QAction(tr("Vertical Zoom &Out"), this);
+    vZoomOutAction->setShortcut(QKeySequence(tr("Ctrl+Alt+[")));
+    connect(vZoomOutAction, &QAction::triggered, this,
+            [this](){ playerWidget->on_waveVMinusBtn_clicked(); });
+    waveformMenu->addAction(vZoomInAction);
+    waveformMenu->addAction(vZoomOutAction);
+    waveformMenu->addSeparator();
+
+    //! ProSoundFinder: expandWaveformViewAction -> PlayerWidget::on_e_Action_triggered()
+    QAction *expandAction = new QAction(tr("&Expand Waveform View"), this);
+    connect(expandAction, &QAction::triggered, this,
+            [this](){ playerWidget->on_e_Action_triggered(); });
+    waveformMenu->addAction(expandAction);
+
+    //! ++++ Options ++++
+    QMenu *optionsMenu = menuBar()->addMenu(tr("&Options"));
+
+    //! ProSoundFinder: cursorFollowsPlaybackAction -> PreferencesControl::
+    //! setPauseOnStop() (mainwindow.cpp dort ~3614). Der Name ist historisch:
+    //! "Cursor Follows Playback" und "pause on stop" bezeichnen dieselbe
+    //! Betriebsart.
+    _cursorFollowsPlaybackAction = new QAction(tr("Cursor Follows Play&back"), this);
+    _cursorFollowsPlaybackAction->setCheckable(true);
+    connect(_cursorFollowsPlaybackAction, &QAction::triggered, this, [this](bool checked){
+        qDebug() << "[MENUDIAG] Cursor Follows Playback ->" << checked
+                 << "windowTitle:" << this->windowTitle();
+        PreferencesControl::instance()->setPauseOnStop(checked, this->windowTitle());
+        //! Gegenprobe: hat der Wert PreferencesControl tatsaechlich erreicht?
+        //! Ob er von dort bis ins PlayerWidget durchschlaegt, zeigt die Zeile
+        //! "PlayerWidget getSettingsFromPreferencesControl _pauseOnStop" --
+        //! die kommt ueber das preferencesChanged()-Signal.
+        qDebug() << "[MENUDIAG] PreferencesControl::pauseOnStop() ist jetzt"
+                 << PreferencesControl::instance()->pauseOnStop();
+    });
+    optionsMenu->addAction(_cursorFollowsPlaybackAction);
+
+    //! In ProSoundFinder nur ueber den PreferencesDialog erreichbar -- hier als
+    //! direkter Menuepunkt, weil es eine der beiden Betriebsarten ist, die in
+    //! der Testanwendung gebraucht werden.
+    _sequentialPlayAction = new QAction(tr("Contin&uous Play (Sequential)"), this);
+    _sequentialPlayAction->setCheckable(true);
+    connect(_sequentialPlayAction, &QAction::triggered, this, [this](bool checked){
+        qDebug() << "[MENUDIAG] Continuous Play (Sequential) ->" << checked
+                 << "windowTitle:" << this->windowTitle();
+        PreferencesControl::instance()->setSequentialPlay(checked, this->windowTitle());
+        qDebug() << "[MENUDIAG] PreferencesControl::sequentialPlay() ist jetzt"
+                 << PreferencesControl::instance()->sequentialPlay();
+    });
+    optionsMenu->addAction(_sequentialPlayAction);
+
+    //! ProSoundFinder: soloAction -> PlayerWidget::setSolo(bool)
+    _soloAction = new QAction(tr("&Solo"), this);
+    _soloAction->setCheckable(true);
+    connect(_soloAction, &QAction::triggered, this,
+            [this](bool checked){ playerWidget->setSolo(checked); });
+    optionsMenu->addAction(_soloAction);
+    optionsMenu->addSeparator();
+
+    //! Der Dialog existiert bereits (s. Konstruktor) -- hier nur erreichbar
+    //! machen, damit auch die uebrigen Preferences (autoPlay, playOnClicked,
+    //! rememberPlayPosition, ...) in der Testanwendung umstellbar sind.
+    QAction *preferencesAction = new QAction(tr("&Preferences..."), this);
+    connect(preferencesAction, &QAction::triggered, this, [this](){
+        if(PreferencesDialog *dlg = this->findChild<PreferencesDialog*>()){
+            dlg->show();
+            dlg->raise();
+            dlg->activateWindow();
+        }
+    });
+    optionsMenu->addAction(preferencesAction);
+
+    //! Zustaende initial und danach bei jeder Aenderung nachziehen.
+    syncPreferenceActions();
+    connect(PreferencesControl::instance(), &PreferencesControl::preferencesChanged,
+            this, &MainWindow::syncPreferenceActions);
+
+    //! PlayerWidget meldet Zustandswechsel ueber dieses Signal -- dasselbe, das
+    //! ProSoundFinders MainWindow::setPlayerActions() bedient. Bewusst mit der
+    //! Zeiger-Syntax verbunden: die String-Variante hat in ProSoundFinder
+    //! wegen einer falschen Signatur jahrelang still nicht funktioniert.
+    connect(playerWidget, &PlayerWidget::setPlayerActions, this,
+            [this](PSNDPLAYER::PLAYERSTATE state){ syncTransportActions((int)state); });
+}
+
+void MainWindow::syncTransportActions(int state)
+{
+    _lastPlayerState = state;
+
+    //! NEU: s. Chat "Cursor Follows Playback greift in der Testapp nicht" --
+    //! woertliche Nachbildung von MainWindow::setPlayerActions() aus
+    //! ProSoundFinder (mainwindow.cpp dort ~7956-7999). Dort gibt es KEINEN
+    //! Toggle-Eintrag; stattdessen wandert die LEERTASTE zustandsabhaengig
+    //! zwischen playAction und pauseAction:
+    //!   spielt es  -> Leertaste = Pause  -> PlayerWidget::pause()
+    //!   steht es   -> Leertaste = Play   -> PlayerWidget::play()
+    //! Genau dadurch laeuft ein "Play/Stop"-Toggle ueber pause() -- die einzige
+    //! Stelle, die _pauseOnStop ("Cursor Follows Playback") auswertet.
+    //! PlayerWidget::stop() und die K-Taste ignorieren die Einstellung bewusst
+    //! (s. playerwidgetV2.cpp:2461 bzw. :594-598 dort).
+    //! Space-Handling gibt es weder in PlayerWidget noch in
+    //! AbstractPlayerWidget -- deren QShortcut-Liste kennt nur j/k/l/e/s/r/t/
+    //! n/p/Return/b/Pfeile/Backspace, und keyPressEvent() nur macOS-
+    //! Sondertasten. Die Leertaste kommt ausschliesslich von hier.
+    const bool isPlaying = (state == PSNDPLAYER::PLAYING
+                            || state == PSNDPLAYER::REVERSE
+                            || state == PSNDPLAYER::FAST_FORWARD
+                            || state == PSNDPLAYER::FAST_REVERSE);
+    if(_playAction && _pauseAction){
+        //! Immer erst beide loesen, sonst haette Qt kurzzeitig zwei Actions mit
+        //! derselben Taste (mehrdeutiges Shortcut -> keine feuert).
+        _playAction->setShortcut(QKeySequence());
+        _pauseAction->setShortcut(QKeySequence());
+        if(isPlaying){
+            _pauseAction->setShortcut(QKeySequence(Qt::Key_Space));
+        }
+        else{
+            _playAction->setShortcut(QKeySequence(Qt::Key_Space));
+        }
+    }
+
+    QAction *target = nullptr;
+    switch(state){
+    case PSNDPLAYER::PLAYING:
+    case PSNDPLAYER::FAST_FORWARD:  target = _playAction;        break;
+    case PSNDPLAYER::REVERSE:
+    case PSNDPLAYER::FAST_REVERSE:  target = _playReverseAction; break;
+    case PSNDPLAYER::PAUSED:        target = _pauseAction;       break;
+    case PSNDPLAYER::STOPPED:       target = _stopAction;        break;
+    default: break;
+    }
+    if(target){
+        //! setChecked() loest bei einem QActionGroup-Mitglied kein triggered()
+        //! aus -- es gibt hier also keine Rueckkopplung auf den Player.
+        target->setChecked(true);
+    }
+}
+
+void MainWindow::syncPreferenceActions()
+{
+    if(_cursorFollowsPlaybackAction){
+        _cursorFollowsPlaybackAction->setChecked(PreferencesControl::instance()->pauseOnStop());
+    }
+    if(_sequentialPlayAction){
+        _sequentialPlayAction->setChecked(PreferencesControl::instance()->sequentialPlay());
+    }
 }
 
 //! NEU: s. Doku bei viewDidLoad() im Header -- 1:1 aus ProSoundFinders

@@ -10,6 +10,8 @@
 
 class PlayerWidget;
 class QTimer;
+class QAction;
+class QActionGroup;
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
@@ -108,6 +110,45 @@ private:
     //! sobald der Nutzer selbst droppt, werden alle noch ausstehenden
     //! automatischen Ladevorgaenge abgebrochen -- Nutzeraktion gewinnt.
     void cancelPendingLoads();
+    //! NEU: Menue mit den Player-relevanten Actions aus ProSoundFinders
+    //! MainWindow, damit sich in der Testanwendung dieselben Betriebsarten
+    //! umschalten lassen -- vor allem Scrollverhalten (No/Page/Continuous) und
+    //! Continuous Play. ProSoundFinders MainWindow hat rund hundert Actions,
+    //! die ueberwiegend an Datenbank/Archiv/Bin haengen; hier wird bewusst NUR
+    //! der Player-/Waveform-Teil nachgebildet, und zwar ueber dieselben
+    //! oeffentlichen Aufrufe wie dort (PlayerWidget::setScrollType(),
+    //! ::setRepeat(), PreferencesControl::setPauseOnStop() usw.) -- damit
+    //! testet die App denselben Weg, den ProSoundFinder auch nimmt.
+    //! Muss NACH createPlayerDock() laufen, da alle Actions playerWidget
+    //! brauchen.
+    void createMenus();
+    //! Haelt die vier Transport-Actions mit dem tatsaechlichen Player-Zustand
+    //! in Deckung (PlayerWidget::setPlayerActions ist das Signal, das
+    //! ProSoundFinders MainWindow dafuer benutzt).
+    void syncTransportActions(int state);
+    //! Haakchen der beiden Preference-Actions aus PreferencesControl
+    //! nachziehen -- die Werte koennen auch ueber den PreferencesDialog
+    //! geaendert werden.
+    void syncPreferenceActions();
+
+    //! Letzter ueber PlayerWidget::setPlayerActions gemeldeter Zustand.
+    //! -1 = noch unbekannt (wird wie "steht" behandelt).
+    int _lastPlayerState = -1;
+
+    QAction *_playAction = nullptr;
+    QAction *_playReverseAction = nullptr;
+    QAction *_pauseAction = nullptr;
+    QAction *_stopAction = nullptr;
+    QAction *_repeatAction = nullptr;
+    QAction *_soloAction = nullptr;
+    QAction *_noScrollingAction = nullptr;
+    QAction *_pageScrollingAction = nullptr;
+    QAction *_continuousScrollingAction = nullptr;
+    QAction *_cursorFollowsPlaybackAction = nullptr;
+    QAction *_sequentialPlayAction = nullptr;
+    QActionGroup *_transportGroup = nullptr;
+    QActionGroup *_scrollingGroup = nullptr;
+
     void loadWindowGeometry();
     //! NEU: PlayerWidget::writeSettings() persistiert nur currentOutputDeviceId,
     //! NICHT currentOutputBitDepth/outputBitDepthAuto/currentSamplerate (Bug in
