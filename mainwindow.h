@@ -70,6 +70,11 @@ public slots:
     void on_deviceChanged(int id);
     void on_sampleRateChanged(const QString &sr);
     void on_bitDepthChanged(const QString &bd);
+    //! NEU: s. Chat "RME-Mehrkanal-Routing" -- analog zu on_bitDepthChanged().
+    void on_channelOffsetChanged(const QString &co);
+    //! NEU: s. Chat "Vorhaben A -- umschaltbares Mehrkanal-Routing" -- analog
+    //! zu on_channelOffsetChanged().
+    void on_multichannelPassthroughChanged(bool enabled);
 
 private:
     //! NEU: s. Chat "Mehrfach-Lade-Test" -- laedt nicht mehr nur die eine

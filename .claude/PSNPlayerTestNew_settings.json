@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "additionalDirectories": [
+      "../ProSoundFinder",
+      "../PSndPlayer"
+    ],
+    "deny": [
+      "Edit(../ProSoundFinder/**)",
+      "Write(../ProSoundFinder/**)",
+      "Edit(../PSndPlayer/**)",
+      "Write(../PSndPlayer/**)"
+    ]
+  }
+}

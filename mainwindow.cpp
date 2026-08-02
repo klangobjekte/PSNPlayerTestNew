@@ -52,6 +52,10 @@ static const QString PSNTEST_STATE_KEY = QStringLiteral("windowState");
 static const QString PSNTEST_DEVICE_ID_KEY = QStringLiteral("outputDeviceId");
 static const QString PSNTEST_SAMPLERATE_KEY = QStringLiteral("outputSamplerate");
 static const QString PSNTEST_BITDEPTH_KEY = QStringLiteral("outputBitDepthText");
+//! NEU: s. Chat "RME-Mehrkanal-Routing".
+static const QString PSNTEST_CHANNELOFFSET_KEY = QStringLiteral("outputChannelOffsetText");
+//! NEU: s. Chat "Vorhaben A -- umschaltbares Mehrkanal-Routing".
+static const QString PSNTEST_PASSTHROUGH_KEY = QStringLiteral("multichannelPassthrough");
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -767,6 +771,10 @@ void MainWindow::createPlayerDock()
             this, SLOT(on_sampleRateChanged(const QString &)));
     connect(playerWidget, SIGNAL(bitDepthChanged(const QString &)),
             this, SLOT(on_bitDepthChanged(const QString &)));
+    connect(playerWidget, SIGNAL(channelOffsetChanged(const QString &)),
+            this, SLOT(on_channelOffsetChanged(const QString &)));
+    connect(playerWidget, SIGNAL(multichannelPassthroughChanged(bool)),
+            this, SLOT(on_multichannelPassthroughChanged(bool)));
 }
 
 void MainWindow::on_deviceChanged(int id)
@@ -813,6 +821,42 @@ void MainWindow::on_bitDepthChanged(const QString &bd)
     settings.endGroup();
 }
 
+//! NEU: s. Chat "RME-Mehrkanal-Routing" -- analog zu on_bitDepthChanged()
+//! oben, aber einfacher: kein "Auto"-Modus, kein Reload (s. Doku bei
+//! PlayerWidget::setOutputChannelOffset()). Text-Format "Channel N-M" wird
+//! zurueck auf den 0-basierten Offset (N-1) geparst.
+void MainWindow::on_channelOffsetChanged(const QString &co)
+{
+    qDebug() << "MainWindow on_channelOffsetChanged" << co;
+    QStringList parts = co.section(' ', 1).split('-');
+    if (!parts.isEmpty()) {
+        bool ok = false;
+        int firstChannel = parts.first().toInt(&ok);
+        if (ok) {
+            playerWidget->setOutputChannelOffset(firstChannel - 1);
+        }
+    }
+
+    QSettings settings;
+    settings.beginGroup(PSNTEST_SETTINGS_GROUP);
+    settings.setValue(PSNTEST_CHANNELOFFSET_KEY, co);
+    settings.endGroup();
+}
+
+//! NEU: s. Chat "Vorhaben A -- umschaltbares Mehrkanal-Routing" -- analog zu
+//! on_channelOffsetChanged() oben, aber einfacher: bool statt Text, kein
+//! Parsing noetig.
+void MainWindow::on_multichannelPassthroughChanged(bool enabled)
+{
+    qDebug() << "MainWindow on_multichannelPassthroughChanged" << enabled;
+    playerWidget->setMultichannelPassthrough(enabled);
+
+    QSettings settings;
+    settings.beginGroup(PSNTEST_SETTINGS_GROUP);
+    settings.setValue(PSNTEST_PASSTHROUGH_KEY, enabled);
+    settings.endGroup();
+}
+
 void MainWindow::loadOutputSettings()
 {
     QSettings settings;
@@ -821,19 +865,28 @@ void MainWindow::loadOutputSettings()
     const int deviceId = settings.value(PSNTEST_DEVICE_ID_KEY, -1).toInt();
     const QString samplerate = settings.value(PSNTEST_SAMPLERATE_KEY).toString();
     const QString bitDepthText = settings.value(PSNTEST_BITDEPTH_KEY).toString();
+    const QString channelOffsetText = settings.value(PSNTEST_CHANNELOFFSET_KEY).toString();
+    const bool hasPassthrough = settings.contains(PSNTEST_PASSTHROUGH_KEY);
+    const bool passthrough = settings.value(PSNTEST_PASSTHROUGH_KEY, false).toBool();
     settings.endGroup();
 
     //! Reihenfolge bewusst: Geraet zuerst (aktiviert es und befuellt die
     //! Samplerate-Combobox neu, s. PlayerWidget::activateOutputdevice()),
     //! erst danach Samplerate/Bittiefe angewendet -- sonst wuerde
     //! activateOutputdevice() sie gleich wieder auf den Geraete-Default
-    //! zuruecksetzen.
+    //! zuruecksetzen. Kanal-Offset danach, aus demselben Grund unkritisch
+    //! (kein Reload/Stream-Neuaufbau, s. Doku bei PlayerWidget::
+    //! setOutputChannelOffset()).
     if (hasDeviceId)
         on_deviceChanged(deviceId);
     if (!samplerate.isEmpty())
         on_sampleRateChanged(samplerate);
     if (!bitDepthText.isEmpty())
         on_bitDepthChanged(bitDepthText);
+    if (!channelOffsetText.isEmpty())
+        on_channelOffsetChanged(channelOffsetText);
+    if (hasPassthrough)
+        on_multichannelPassthroughChanged(passthrough);
 }
 
 

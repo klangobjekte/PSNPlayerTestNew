@@ -10,7 +10,9 @@ CONFIG += c++11
 
 include(../ProSoundfinder/QtAwesome/QtAwesome.pri)
 
-
+UI_DIR = uics
+MOC_DIR = mocs
+OBJECTS_DIR = objs
 
 QT += widgets \
         sql \
