@@ -189,6 +189,28 @@ void MainWindow::createMenus()
     playerMenu->addAction(_repeatAction);
     playerMenu->addSeparator();
 
+    //! NEU: s. Chat "QPushButton fuer Scrubbing, permanent an" --
+    //! ProSoundFinder: scrubbingAction -> PlayerWidget::setScrubAlwaysOn().
+    //! Rueckweg (scrubBtn im PlayerWidget -> Menue-Haekchen hier) ueber
+    //! publishScrubAlwaysOnState, gleiches Muster wie im ProSoundFinder-
+    //! MainWindow.
+    //! Anzeige-Shortcut "\tH" nur als Beschriftung -- die echte
+    //! Tastenbehandlung macht der 'h'-QShortcut im PlayerWidget (s. dort);
+    //! ein zusaetzlicher setShortcut() hier wuerde damit kollidieren
+    //! (Ambiguitaet, keiner von beiden feuert).
+    QAction *scrubbingAction = new QAction(tr("Scru&bbing\tH"), this);
+    scrubbingAction->setCheckable(true);
+    connect(scrubbingAction, &QAction::triggered, this,
+            [this](bool checked){ playerWidget->setScrubAlwaysOn(checked); });
+    connect(playerWidget, &PlayerWidget::publishScrubAlwaysOnState,
+            scrubbingAction, &QAction::setChecked);
+    //! createMenus() laeuft NACH createPlayerDock() (s. Konstruktor) --
+    //! den beim PlayerWidget-Aufbau aus den Settings geladenen Zustand
+    //! (dessen publish-Signal vor diesem connect feuerte) hier nachziehen.
+    scrubbingAction->setChecked(playerWidget->scrubAlwaysOn());
+    playerMenu->addAction(scrubbingAction);
+    playerMenu->addSeparator();
+
     //! ProSoundFinder: increaseSpeedAction/decreaseSpeedAction
     QAction *speedUpAction = new QAction(tr("Speed &+"), this);
     connect(speedUpAction, &QAction::triggered, this, [this](){ playerWidget->increaseSpeed(); });
